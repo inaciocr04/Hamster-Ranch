@@ -34,7 +34,7 @@ composer install
 Créez un fichier `.env.local` à la racine du projet (ou modifiez le fichier `.env` existant) :
 
 ```env
-DATABASE_URL="mysql://user:password@127.0.0.1:3306/hamster_ranch?serverVersion=8.0&charset=utf8mb4"
+DATABASE_URL="mysql://user:password@127.0.0.1:3306/hamster_ranch?charset=utf8mb4"
 ```
 
 **Pour PostgreSQL :**
