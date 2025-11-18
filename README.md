@@ -87,6 +87,14 @@ symfony serve
 
 L'API sera accessible à l'adresse : `http://127.0.0.1:8000/`
 
+### 8. Démarrer avec des données
+
+Faites cette commande pour avoir des données sinon les route marcherons pas
+
+```bash
+php bin/console doctrine:fixtures:load
+```
+
 ## Utilisation de l'API
 
 ### Authentification
