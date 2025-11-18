@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\Hamster;
 use App\Repository\HamsterRepository;
 use App\Repository\UserRepository;
+use App\Service\GameOverService;
 use App\Service\HamsterService;
 use Doctrine\ORM\EntityManagerInterface;
 use Faker\Factory;
@@ -16,9 +17,19 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class HamsterController extends AbstractController
 {
+    public function __construct(
+        private GameOverService $gameOverService
+    ) {}
     #[Route('/api/hamsters', name: 'hamsters_user', methods: ['GET'])]
     public function getHamstersUser(HamsterRepository $hamsterRepository): JsonResponse
     {
+        if ($this->gameOverService->checkGameOver()) {
+            return $this->json(
+                ['error' => 'Vous avez perdu ! Votre solde d\'or est négatif. Le jeu est terminé pour vous.'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
         $user = $this->getUser();
         $hamsters = $hamsterRepository->findBy(['owner' => $user]);
 
@@ -33,6 +44,13 @@ final class HamsterController extends AbstractController
     #[Route('/api/hamsters/{id}', name: 'hamster_user_show', methods: ['GET'])]
     public function getHamsterUserShow(HamsterRepository $hamsterRepository, $id): JsonResponse
     {
+        if ($this->gameOverService->checkGameOver()) {
+            return $this->json(
+                ['error' => 'Vous avez perdu ! Votre solde d\'or est négatif. Le jeu est terminé pour vous.'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
         $user = $this->getUser();
         $hamster = $hamsterRepository->findOneBy(['id' => $id, 'owner' => $user]);
 
@@ -58,6 +76,13 @@ final class HamsterController extends AbstractController
         EntityManagerInterface $entityManager,
         HamsterService $hamsterService
     ): JsonResponse {
+        if ($this->gameOverService->checkGameOver()) {
+            return $this->json(
+                ['error' => 'Vous avez perdu ! Votre solde d\'or est négatif. Le jeu est terminé pour vous.'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
         $data = $request->toArray();
         $parent1Id = $data['idHamster1'] ?? null;
         $parent2Id = $data['idHamster2'] ?? null;
@@ -123,6 +148,13 @@ final class HamsterController extends AbstractController
         EntityManagerInterface $entityManager,
         HamsterService $hamsterService
     ): JsonResponse {
+        if ($this->gameOverService->checkGameOver()) {
+            return $this->json(
+                ['error' => 'Vous avez perdu ! Votre solde d\'or est négatif. Le jeu est terminé pour vous.'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
         $user = $this->getUser();
         $hamster = $hamsterRepository->findOneBy(['id' => $id, 'owner' => $user]);
 
@@ -143,25 +175,23 @@ final class HamsterController extends AbstractController
             );
         }
 
-        /** @var \App\Entity\User $userEntity */
-        $userEntity = $user;
-        $gold = $userEntity->getGold() ?? 0;
-
-        if ($gold < $cost) {
+        $userEntity = $userRepository->findOneBy(['email' => $user->getUserIdentifier()]);
+        if (!$userEntity) {
             return $this->json(
-                [
-                    'error' => 'Pas assez d\'or. Coût: ' . $cost . ', Or disponible: ' . $gold
-                ],
-                Response::HTTP_BAD_REQUEST
+                ['error' => 'Utilisateur introuvable'],
+                Response::HTTP_NOT_FOUND
             );
         }
 
+        $gold = $userEntity->getGold() ?? 0;
+
+        // Permettre que le gold devienne négatif (cela déclenchera la fin de jeu)
+        $hamsterService->ageAllHamsters($userEntity);
         $userEntity->setGold($gold - $cost);
         $hamster->setHunger(100);
 
         $entityManager->persist($userEntity);
         $entityManager->persist($hamster);
-        $hamsterService->ageAllHamsters($userEntity);
         $entityManager->flush();
 
         return $this->json(
@@ -180,6 +210,13 @@ final class HamsterController extends AbstractController
         EntityManagerInterface $entityManager,
         HamsterService $hamsterService,
     ): JsonResponse {
+        if ($this->gameOverService->checkGameOver()) {
+            return $this->json(
+                ['error' => 'Vous avez perdu ! Votre solde d\'or est négatif. Le jeu est terminé pour vous.'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
         $user = $this->getUser();
         $hamster = $hamsterRepository->findOneBy(['id' => $id, 'owner' => $user]);
 
@@ -213,16 +250,35 @@ final class HamsterController extends AbstractController
     public function renameHamster(
         Request $request,
         HamsterRepository $hamsterRepository,
+        UserRepository $userRepository,
         EntityManagerInterface $entityManager,
         $id
     ): JsonResponse {
+        if ($this->gameOverService->checkGameOver()) {
+            return $this->json(
+                ['error' => 'Vous avez perdu ! Votre solde d\'or est négatif. Le jeu est terminé pour vous.'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
         $user = $this->getUser();
-        $hamster = $hamsterRepository->findOneBy(['id' => $id, 'owner' => $user]);
+        $isAdmin = $this->isGranted('ROLE_ADMIN');
+
+        $hamster = $hamsterRepository->find($id);
 
         if (!$hamster) {
             return $this->json(
-                ['error' => 'Hamster introuvable ou ne vous appartient pas'],
+                ['error' => 'Hamster introuvable'],
                 Response::HTTP_NOT_FOUND
+            );
+        }
+
+        $hamsterOwner = $hamster->getOwner();
+        $userEntity = $userRepository->findOneBy(['email' => $user->getUserIdentifier()]);
+        if (!$isAdmin && (!$hamsterOwner || !$userEntity || $hamsterOwner->getId() !== $userEntity->getId())) {
+            return $this->json(
+                ['error' => 'Vous n\'avez pas la permission de modifier ce hamster'],
+                Response::HTTP_FORBIDDEN
             );
         }
 
@@ -248,12 +304,19 @@ final class HamsterController extends AbstractController
         );
     }
 
-    #[Route('/api/hamster/sleep/{nbDays}', name: 'hamster_sleep', methods: ['POST'])]
+    #[Route('/api/hamsters/sleep/{nbDays}', name: 'hamster_sleep', methods: ['POST'])]
     public function sleep(
         HamsterRepository $hamsterRepository,
         EntityManagerInterface $entityManager,
         int $nbDays
     ): JsonResponse {
+        if ($this->gameOverService->checkGameOver()) {
+            return $this->json(
+                ['error' => 'Vous avez perdu ! Votre solde d\'or est négatif. Le jeu est terminé pour vous.'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
         if ($nbDays <= 0) {
             return $this->json(
                 ['error' => 'Le nombre de jours doit être supérieur à 0'],
