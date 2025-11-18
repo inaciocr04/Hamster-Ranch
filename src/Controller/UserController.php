@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\User;
 use App\Repository\UserRepository;
+use App\Service\HamsterService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -14,22 +15,72 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class UserController extends AbstractController
 {
+    #[Route('/api/user', name: 'api_user', methods: ['GET'])]
+    public function getUsers(): JsonResponse
+    {
+        $user = $this->getUser();
+
+        if (!$user) {
+            return $this->json(
+                ['error' => 'Utilisateur non authentifié'],
+                Response::HTTP_UNAUTHORIZED
+            );
+        }
+
+        return $this->json(
+            ['user' => $user],
+            Response::HTTP_OK,
+            [],
+            ['groups' => 'user']
+        );
+    }
+
     #[Route('/api/register', name: 'api_register', methods: ['POST'])]
     public function register(
         Request $request,
         UserPasswordHasherInterface $passwordHasher,
-        EntityManagerInterface $entityManager
+        EntityManagerInterface $entityManager,
+        HamsterService $hamsterService
     ): JsonResponse {
         $data = json_decode($request->getContent(), true);
 
-        $email = $data['email'];
-        $password = $data['password'];
+        if (!$data) {
+            return $this->json(
+                ['error' => 'Données JSON invalides'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        $email = $data['email'] ?? null;
+        $password = $data['password'] ?? null;
+
+        if (!$email || !$password) {
+            return $this->json(
+                ['error' => 'Les champs email et password sont requis'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->json(
+                ['error' => 'Format d\'email invalide'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        if (strlen($password) < 6) {
+            return $this->json(
+                ['error' => 'Le mot de passe doit contenir au moins 6 caractères'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
 
         $existingUser = $entityManager->getRepository(User::class)->findOneBy(['email' => $email]);
         if ($existingUser) {
-            return $this->json([
-                'error' => 'Cet email est déjà utilisé'
-            ], Response::HTTP_BAD_REQUEST);
+            return $this->json(
+                ['error' => 'Cet email est déjà utilisé'],
+                Response::HTTP_BAD_REQUEST
+            );
         }
 
         $user = new User();
@@ -39,12 +90,18 @@ final class UserController extends AbstractController
         $user->setGold(500);
 
         $entityManager->persist($user);
+        $hamsterService->createInitialHamsters($user);
         $entityManager->flush();
 
-        return $this->json([
-            'user' => $user,
-            'hamsters' => $user->getHamsters()->toArray()
-        ], Response::HTTP_CREATED, [], ['groups' => 'user']);
+        return $this->json(
+            [
+                'user' => $user,
+                'hamsters' => $user->getHamsters()->toArray()
+            ],
+            Response::HTTP_CREATED,
+            [],
+            ['groups' => 'user']
+        );
     }
 
     #[Route('/api/delete/{id}', name: 'api_delete_user', methods: ['DELETE'])]
@@ -53,28 +110,29 @@ final class UserController extends AbstractController
         UserRepository $userRepository,
         EntityManagerInterface $entityManager
     ): JsonResponse {
-        // Vérifier que l'utilisateur est admin
+
         if (!$this->isGranted('ROLE_ADMIN')) {
-            return $this->json([
-                'error' => 'Accès refusé. ROLE_ADMIN requis'
-            ], Response::HTTP_FORBIDDEN);
+            return $this->json(
+                ['error' => 'Accès refusé. ROLE_ADMIN requis'],
+                Response::HTTP_FORBIDDEN
+            );
         }
 
-        $user = $userRepository->find((int)$id);
+        $user = $userRepository->find($id);
 
         if (!$user) {
-            return $this->json([
-                'error' => 'Utilisateur introuvable'
-            ], Response::HTTP_NOT_FOUND);
+            return $this->json(
+                ['error' => 'Utilisateur introuvable'],
+                Response::HTTP_NOT_FOUND
+            );
         }
 
-        // La suppression en cascade des hamsters sera gérée automatiquement par Doctrine
-        // grâce à la relation OneToMany avec cascade: ['remove'] ou orphanRemoval
         $entityManager->remove($user);
         $entityManager->flush();
 
-        return $this->json([
-            'message' => 'Utilisateur et ses hamsters supprimés avec succès'
-        ], Response::HTTP_OK);
+        return $this->json(
+            ['message' => 'Utilisateur et ses hamsters supprimés avec succès'],
+            Response::HTTP_OK
+        );
     }
 }

@@ -13,33 +13,32 @@ class Hamster
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
-    #[Groups(['hamster', 'owner'])]
+    #[Groups(['hamster', 'user'])]
     private ?int $id = null;
 
 
     #[ORM\Column(length: 255)]
-    #[Groups(['hamster', 'owner'])]
+    #[Groups(['hamster', 'user'])]
     private ?string $name = null;
 
     #[ORM\Column(nullable: true)]
-    #[Groups(['hamster', 'owner'])]
+    #[Groups(['hamster', 'user'])]
     private ?int $hunger = null;
 
     #[ORM\Column]
-    #[Groups(['hamster', 'owner'])]
+    #[Groups(['hamster', 'user'])]
     private ?int $age = null;
 
     #[ORM\Column(length: 1)]
-    #[Groups(['hamster', 'owner'])]
+    #[Groups(['hamster', 'user'])]
     private ?string $genre = null;
 
     #[ORM\Column]
-    #[Groups(['hamster', 'owner'])]
+    #[Groups(['hamster', 'user'])]
     private ?bool $active = null;
 
     #[ORM\ManyToOne(inversedBy: 'hamsters')]
     #[Groups(['hamster'])]
-    // #[Ignore]
     private ?User $owner = null;
 
     public function getId(): ?int
